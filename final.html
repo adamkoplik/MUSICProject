@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>The Musical Mathematician</title>
+  <script src="https://unpkg.com/tone/build/Tone.js"></script>
+</head>
+
+<style>
+  .keyboard-ui {
+    margin-top: 10px;
+    margin-bottom: 20px;
+    position: relative;
+    height: 150px;
+    width: 700px;
+  }
+
+  .key-label {
+    position: absolute;
+    font-size: 8px;
+    font-weight: bold;
+    color: black;
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+    font-family: Geneva, Tahoma, Verdana, sans-serif;
+
+  }
+
+  .key-label.white {
+    bottom: 5px;
+    font-family: Geneva, Tahoma, Verdana, sans-serif;
+
+  }
+
+  .key-label.black {
+    bottom: 25px;
+    color: black;
+    font-style: italic;
+    font-family: Geneva, Tahoma, Verdana, sans-serif;
+  }
+
+  a,
+  li,
+  h1,
+  h3,
+  label,
+  button,
+  p {
+    font-family: Geneva, Tahoma, Verdana, sans-serif;
+  }
+
+  a {
+    font-style: italic;
+    font-size: 12px;
+  }
+
+  li {
+    font-size: 12px;
+  }
+</style>
+
+<body>
+  <h1>The Musical Mathematician</h1>
+  <form id="mainForm">
+    <label>Tempo (BPM): <input type="number" id="tempo" value="120" /></label><br>
+    <label>Number of Tracks: <input type="number" id="numTracks" value="2" min="1" /></label>
+    <button type="button" id="generateTracks">Create Track</button>
+    <div id="trackInputs"></div>
+    <button type="submit">Play</button>
+  </form>
+  <script type="text/javascript" src="external-js/nprogress.js"></script>
+  <script src="https://unpkg.com/nexusui@2.0.7/dist/NexusUI.min.js"></script>
+  <script src="https://unpkg.com/tone@next/build/Tone.js"></script>
+  <script type="text/javascript" src="Tonejs-Instruments.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjs@11.8.0/lib/browser/math.js"></script>
+
+
+  <script>
+
+    const instrumentCache = {};  // { piano: SamplerInstance, violin: SamplerInstance, ... }keyboardui.on
+    const durationOptions = {
+      "whole": "1n",
+      "half": "2n",
+      "quarter": "4n",
+      "eighth": "8n",
+      "sixteenth": "16n"
+    };
+
+    const durationToBeats = {
+      "1n": 4,      // whole note
+      "2n": 2,      // half note
+      "4n": 1,      // quarter note
+      "8n": 0.5,    // eighth note
+      "16n": 0.25   // sixteenth note
+    };
+
+    const allowedNotes = {
+      "bass_electric": [28, 31, 40, 43, 52, 55, 64, 67],
+      "bassoon": [43, 45, 48, 55, 57, 60, 64, 67, 69, 72],
+      "cello": [36, 38, 40, 41, 43, 45, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72],
+      "clarinet": [50, 53, 62, 65, 74, 77, 86],
+      "contrabass": [31, 36, 38, 40, 45, 52, 59],
+      "flute": [60, 64, 69, 72, 76, 81, 84, 88, 93, 96],
+      "french_horn": [33, 36, 43, 50, 53, 57, 60, 74, 77],
+      "guitar_acoustic": [38, 40, 41, 43, 45, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74],
+      "guitar_electric": [40, 45, 48, 57, 60, 69, 72, 81, 84],
+      "guitar_nylon": [35, 38, 40, 45, 47, 50, 52, 55, 57, 59, 64, 69, 71, 74, 76, 79, 81],
+      "harmonium": [36, 38, 40, 41, 43, 45, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74],
+      "harp": [28, 31, 35, 38, 41, 45, 48, 52, 55, 59, 62, 65, 69, 72, 76, 79, 83, 86, 89, 93, 95, 98, 101],
+      "organ": [24, 33, 36, 45, 48, 57, 60, 69, 72, 81, 84],
+      "piano": [24, 26, 28, 29, 31, 33, 35, 36, 38, 40, 41, 43, 45, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84, 86, 88, 89, 91, 93, 95, 96, 98, 100, 101, 103, 105, 107, 108],
+      "saxophone": [50, 52, 53, 55, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81],
+      "trombone": [41, 48, 50, 53, 60, 62, 65],
+      "trumpet": [53, 57, 60, 65, 67, 74, 77, 81, 84],
+      "tuba": [29, 41, 50, 53, 62],
+      "violin": [55, 57, 60, 64, 67, 69, 72, 76, 79, 81, 84, 88, 91, 93, 96],
+      "xylophone": [67, 72, 79, 84, 91, 96, 103, 108]
+    }
+
+    function midiToFreq(midi) {
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+    <!-- Instruments via Copyright (c) 2018 Nicholaus P. Brosowsky-->
+
+    const instruments = {
+      piano: 'piano',
+      bass_electric: 'bass_electric',
+      bassoon: 'bassoon',
+      cello: 'cello',
+      clarinet: 'clarinet',
+      contrabass: 'contrabass',
+      flute: 'flute',
+      french_horn: 'french_horn',
+      guitar_acoustic: 'guitar_acoustic',
+      guitar_electric: 'guitar_electric',
+      guitar_nylon: 'guitar_nylon',
+      harmonium: 'harmonium',
+      harp: 'harp',
+      organ: 'organ',
+      saxophone: 'saxophone',
+      trombone: 'trombone',
+      trumpet: 'trumpet',
+      tuba: 'tuba',
+      violin: 'violin',
+      xylophone: 'xylophone'
+    }
+
+    const keyboards = {}; // globally accessible object
+
+    const trackInputsDiv = document.getElementById("trackInputs");
+    const generateBtn = document.getElementById("generateTracks");
+    document.addEventListener("DOMContentLoaded", () => {
+      generateBtn.addEventListener("click", () => {
+        trackInputsDiv.innerHTML = "";
+        const num = parseInt(document.getElementById("numTracks").value);
+        for (let i = 0; i < num; i++) {
+          const div = document.createElement("div");
+          div.innerHTML = `
+          <h3>Track ${i + 1}</h3>
+          <label>Equation (use "x"): <input type="text" name="eq${i}" value="sin(x)" /></label><br>
+          <label>Lowest MIDI Note: <input type="number" name="low${i}" value="50" /></label><br>
+          <label>Highest MIDI Note: <input type="number" name="high${i}" value="80" /></label><br>
+          <label>Step Size: <input type="number" name="step${i}" value="1" /></label><br>
+          <label>Start Time (beats): <input type="number" name="start${i}" value="0" /></label><br>
+            <label>Note Duration:
+              <select name="duration${i}">
+                <option value="1n">Whole</option>
+                <option value="2n">Half</option>
+                <option value="4n" selected>Quarter</option>
+                <option value="8n">Eighth</option>
+                <option value="16n">Sixteenth</option>
+              </select>
+            </label><br>
+          <label>Number of beats: <input type="number" name="beats${i}" value="16" /></label><br>
+          <label>Instrument:
+            <select name="inst${i}">
+              ${Object.keys(instruments).map(i => `<option value="${i}">${i}</option>`).join("")}
+            </select>
+          </label><br><br>
+        <div id="keyboard${i}" class="keyboard-ui"></div>
+        `;
+          trackInputsDiv.appendChild(div);
+
+
+          setTimeout(() => {
+            const keyboardDiv = document.getElementById(`keyboard${i}`);
+            const lowInput = document.querySelector(`[name=low${i}]`);
+            const highInput = document.querySelector(`[name=high${i}]`);
+            const instInput = document.querySelector(`[name=inst${i}]`);
+
+            let minNote = 36;
+            let maxNote = 84;
+
+            const updateRangeBounds = () => {
+              const instName = instInput.value;
+              const allowed = allowedNotes[instName];
+              if (!allowed || allowed.length === 0) return;
+
+              minNote = Math.min(...allowed);
+              maxNote = Math.max(...allowed);
+
+              lowInput.min = minNote;
+              lowInput.max = maxNote;
+              highInput.min = minNote;
+              highInput.max = maxNote;
+
+              lowInput.value = minNote;
+              highInput.value = maxNote;
+            };
+            SampleLibrary.setExt('.ogg');
+            const instName = instInput.value;
+            const renderKeyboard = async () => {
+              const low = Math.max(minNote, parseInt(lowInput.value));
+              const high = Math.min(maxNote, parseInt(highInput.value));
+              if (high <= low) return;
+
+              keyboardDiv.innerHTML = "";
+
+              const keyboardUI = new Nexus.Piano(keyboardDiv, {
+                size: [700, 125],
+                mode: 'button',
+                lowNote: low,
+                highNote: high + 1
+              });
+              keyboards[i] = keyboardUI;
+
+              // Load instrument if not loaded yet
+              SampleLibrary.setExt('.ogg');
+              const instName = instInput.value;
+
+              const noteNames = allowedNotes[instName].map(m => Tone.Frequency(m, "midi").toNote())
+
+              const urls = {};
+              noteNames.forEach(note => {
+                urls[note] = `${instName}/${note}.ogg`; // don't include 'samples/' here, it's in baseUrl
+                midi_val = Tone.Frequency(note).toMidi();
+              });
+
+              const sampler = new Tone.Sampler({
+                urls,
+                baseUrl: "samples/"
+              }).toDestination();
+
+              instrumentCache[instName] = sampler;
+
+
+              keyboardUI.on('change', async (note) => {
+                await Tone.start();
+                const midiNote = Tone.Frequency(note.note, "midi").toNote();
+                const instName = instInput.value;
+
+                // Load instrument if not cached
+                if (!instrumentCache[instName]) {
+                  const noteNames = allowedNotes[instName].map(n => Tone.Frequency(n, 'midi').toNote());
+
+                  // Optional: Log each file path for debugging
+
+                  const sampler = new Tone.Sampler({
+                    urls: Object.fromEntries(
+                      noteNames.map(n => [n, `${instName}/${n}.ogg`])
+                    ),
+                    baseUrl: "samples/"
+                  }).toDestination();
+
+                  instrumentCache[instName] = sampler;
+                }
+
+                const currInst = instrumentCache[instName];
+                currInst.triggerAttackRelease(midiNote, "1s");
+              });
+
+              // Label the keys
+              function midiToNoteName(midi) {
+                const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                const name = notes[midi % 12];
+                return { name, isSharp: name.includes('#') };
+              }
+
+              let whiteKeys = 0;
+              for (let midi = low; midi <= high; midi++) {
+                const { isSharp } = midiToNoteName(midi);
+                if (!isSharp) whiteKeys++;
+              }
+
+              const keyWidth = 700 / whiteKeys;
+              whiteKeys = 0;
+
+              let whiteKeyIndex = 0;
+              for (let midi = low; midi <= high; midi++) {
+                const { isSharp } = midiToNoteName(midi);
+                const allowed = allowedNotes[instName];
+                const isAllowed = allowed.includes(midi);
+
+                const label = document.createElement("div");
+                label.className = `key-label ${isSharp ? "black" : "white"}`;
+                if (!isAllowed) {
+                  label.style.fontSize = "0px";
+                }
+
+                if (!isSharp) whiteKeyIndex++;
+                const left = isSharp
+                  ? ((whiteKeyIndex - 1) * keyWidth + keyWidth / 2)
+                  : (whiteKeyIndex - 1) * keyWidth;
+
+                label.style.left = `${left}px`;
+                label.style.width = `${keyWidth}px`;
+                label.innerText = midi;
+                keyboardDiv.appendChild(label);
+              }
+            };
+
+            updateRangeBounds(); // enforce initial limits
+            renderKeyboard();    // draw initial keys
+
+            lowInput.addEventListener("input", renderKeyboard);
+            highInput.addEventListener("input", renderKeyboard);
+            instInput.addEventListener("change", () => {
+              updateRangeBounds();
+              renderKeyboard();
+            });
+          }, 0);
+
+        }
+      });
+    });
+    document.getElementById("mainForm").addEventListener("submit", async function (e) {
+
+      e.preventDefault();
+      await Tone.start();
+
+      // Reset Transport to ensure clean playback
+      Tone.Transport.stop();
+      Tone.Transport.cancel(0);
+      Tone.Transport.position = 0;
+
+
+      const tempo = parseInt(document.getElementById("tempo").value);
+      Tone.Transport.bpm.value = tempo;
+
+      const numTracks = parseInt(document.getElementById("numTracks").value);
+      for (let t = 0; t < numTracks; t++) {
+
+        const eq = document.querySelector(`[name=eq${t}]`).value;
+        const low = parseInt(document.querySelector(`[name=low${t}]`).value);
+        const high = parseInt(document.querySelector(`[name=high${t}]`).value);
+        const step = parseInt(document.querySelector(`[name=step${t}]`).value);
+        const start = parseInt(document.querySelector(`[name=start${t}]`).value);
+        const beats = parseInt(document.querySelector(`[name=beats${t}]`).value);
+        const instName = document.querySelector(`[name=inst${t}]`).value;
+        const durationVal = document.querySelector(`[name=duration${t}]`).value;
+
+        // Load instrument if not cached
+        if (!instrumentCache[instName]) {
+          const noteNames = allowedNotes[instName].map(n => Tone.Frequency(n, 'midi').toNote());
+
+          // Optional: Log each file path for debugging
+
+          const sampler = new Tone.Sampler({
+            urls: Object.fromEntries(
+              noteNames.map(n => [n, `${instName}/${n}.ogg`])
+            ),
+            baseUrl: "samples/",
+          }).toDestination();
+
+          instrumentCache[instName] = sampler;
+        }
+
+        const currInst = instrumentCache[instName];
+
+        const values = [];
+        const steps = beats / durationToBeats[durationVal];
+
+        for (let i = 0; i < steps; i++) {
+          const scope = { x: i * step };
+          let val = 60;
+          try {
+            val = math.evaluate(eq, scope);  // 70
+          } catch (e) {
+            alert("Error in track " + (t + 1) + ": " + e.message);
+            return;
+          }
+          values.push(val);
+        }
+
+
+        const sorted = [...values].sort((a, b) => a - b);
+        const notes = values.map(v => {
+          const percentile = sorted.filter(x => x <= v).length / values.length;
+          return Math.floor(low * (1 - percentile) + high * percentile);
+        });
+
+        notes.forEach((note, i) => {
+          const time = (start + i) * Tone.Time(durationVal).toSeconds();
+          Tone.Transport.schedule((tTime) => {
+            currInst.triggerAttackRelease(
+              Tone.Frequency(note, "midi").toNote(),
+              durationVal,
+              tTime);
+
+            // Light up key visually
+            const keyIndex = note; // Nexus uses MIDI note index
+            const kbd = keyboards[t]; // or use a proper key if track-specific
+            if (kbd) {
+              kbd.toggleKey(keyIndex, true); // turn on
+              setTimeout(() => kbd.toggleKey(keyIndex, false), Tone.Time(durationVal).toMilliseconds());
+            }
+
+          }, time);
+        });
+      }
+      Tone.Transport.start("+0.1");
+    }
+    );
+  </script>
+</body>
+
+<footer style="margin-top: 2rem; font-size: 0.9em; font-family: Geneva, Tahoma, Verdana, sans-serif; color: #555;">
+  <p><strong>Libraries Used:</strong></p>
+  <ul>
+    <li>
+      <a href="https://tonejs.github.io" target="_blank" rel="noopener">Tone.js</a> by Yotam Mann
+    </li>
+    <li>
+      <a href="https://nexus-js.github.io/ui/" target="_blank" rel="noopener">NexusUI</a> by Taylor Baldwin
+    </li>
+    <li>
+      <a href="https://github.com/nbrosowsky/Tonejs-Instruments" target="_blank" rel="noopener">Tonejs-Instruments</a>
+      by Nicholaus P. Brosowsky
+    </li>
+    <li>
+      <a href="https://mathjs.org/" target="_blank" rel="noopener">math.js</a> by Jos de Jong and contributors
+    </li>
+    <li>
+      <a href="https://ricostacruz.com/nprogress/" target="_blank" rel="noopener">NProgress.js</a> by Rico Sta. Cruz
+    </li>
+  </ul>
+</footer>
+
+
+</html>
